@@ -21,7 +21,7 @@ shift || true
 DISABLED_CHANNELS="${QWENPAW_DISABLED_CHANNELS:-imessage}"
 
 echo "[docker_build] Building image: $TAG (Dockerfile: $DOCKERFILE)"
-DOCKER_BUILDKIT=1 docker build -f "$DOCKERFILE" \
+docker build -f "$DOCKERFILE" \
     --build-arg QWENPAW_DISABLED_CHANNELS="$DISABLED_CHANNELS" \
     ${QWENPAW_ENABLED_CHANNELS:+--build-arg QWENPAW_ENABLED_CHANNELS="$QWENPAW_ENABLED_CHANNELS"} \
     -t "$TAG" "$@" .

@@ -97,7 +97,8 @@ RUN uv pip install --no-cache-dir . && rm -rf ./build
 ENV QWENPAW_PORT=8088
 
 COPY deploy/config/supervisord.conf.template /etc/supervisor/conf.d/supervisord.conf.template
-COPY --chmod=755 deploy/entrypoint.sh /entrypoint.sh
+COPY deploy/entrypoint.sh /entrypoint.sh
+RUN chmod 755 /entrypoint.sh
 
 EXPOSE 8088
 
