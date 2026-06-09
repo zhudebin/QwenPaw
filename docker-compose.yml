@@ -1,8 +1,6 @@
 version: '3.8'
 
 volumes:
-  qwenpaw-data:
-    name: qwenpaw-data
   qwenpaw-secrets:
     name: qwenpaw-secrets
   qwenpaw-backups:
@@ -20,6 +18,6 @@ services:
      - QWENPAW_AUTH_USERNAME=admin
      - QWENPAW_AUTH_PASSWORD=admin
     volumes:
-      - qwenpaw-data:/app/working:z
+      - /data/ws:/app/working:z
       - qwenpaw-secrets:/app/working.secret:z
       - qwenpaw-backups:/app/working.backups:z
