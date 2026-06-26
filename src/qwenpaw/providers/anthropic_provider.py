@@ -7,6 +7,7 @@ import json
 import logging
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List
 
 import httpx
@@ -27,6 +28,150 @@ from .capping_formatter import _CappingAnthropicFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 
 logger = logging.getLogger(__name__)
+
+# Maximum number of body bytes to dump per request log line.
+# Bodies larger than this are truncated to avoid flooding logs.
+_MAX_LOGGED_BODY_BYTES = 16 * 1024
+# Header names that must never be logged in clear text.
+_SENSITIVE_HEADER_KEYS = {
+    "authorization",
+    "x-api-key",
+    "auth_token",
+    "proxy-authorization",
+}
+# Dedicated logger + log file for raw Anthropic HTTP requests.
+# Lives next to the main qwenpaw.log so it's easy to find but stays
+# isolated (propagate=False) to avoid polluting the main log/stderr.
+_ANTHROPIC_REQUEST_LOG_BASENAME = "qwenpaw-anthropic.log"
+_ANTHROPIC_REQUEST_LOGGER_NAME = "qwenpaw.anthropic_http"
+_ANTHROPIC_REQUEST_LOG_MAX_BYTES = 10 * 1024 * 1024  # 10 MiB
+_ANTHROPIC_REQUEST_LOG_BACKUP_COUNT = 5
+_request_logger_initialized = False
+
+
+def _get_request_logger() -> logging.Logger:
+    """Return a dedicated logger that writes Anthropic HTTP request details
+    to a separate rotating log file (``qwenpaw-anthropic.log``).
+
+    Initialization is lazy and idempotent so importing this module never
+    creates the log file as a side effect.
+    """
+    global _request_logger_initialized  # pylint: disable=global-statement
+    req_logger = logging.getLogger(_ANTHROPIC_REQUEST_LOGGER_NAME)
+    if _request_logger_initialized:
+        return req_logger
+    try:
+        # Lazy imports keep this module decoupled from app startup order.
+        from qwenpaw.constant import WORKING_DIR
+        from qwenpaw.utils.logging import (
+            PlainFormatter,
+            _SafeRotatingFileHandler,
+        )
+
+        log_path = Path(WORKING_DIR) / _ANTHROPIC_REQUEST_LOG_BASENAME
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path_resolved = log_path.resolve()
+
+        already_attached = False
+        for handler in req_logger.handlers:
+            base = getattr(handler, "baseFilename", None)
+            if (
+                base is not None
+                and Path(base).resolve() == log_path_resolved
+            ):
+                already_attached = True
+                break
+
+        if not already_attached:
+            file_handler = _SafeRotatingFileHandler(
+                log_path,
+                encoding="utf-8",
+                maxBytes=_ANTHROPIC_REQUEST_LOG_MAX_BYTES,
+                backupCount=_ANTHROPIC_REQUEST_LOG_BACKUP_COUNT,
+            )
+            file_handler.setLevel(logging.INFO)
+            file_handler.setFormatter(
+                PlainFormatter(
+                    "%(asctime)s | %(message)s",
+                    "%Y-%m-%d %H:%M:%S",
+                ),
+            )
+            req_logger.addHandler(file_handler)
+
+        req_logger.setLevel(logging.INFO)
+        # Keep these verbose request dumps out of stderr / qwenpaw.log.
+        req_logger.propagate = False
+    except Exception:
+        # Never let logging setup break the actual request path; fall
+        # back to the module logger if file handler creation fails.
+        logger.exception("Failed to init Anthropic request log file")
+    finally:
+        _request_logger_initialized = True
+    return req_logger
+
+
+def _redact_headers(headers: Any) -> Dict[str, str]:
+    """Return a dict copy of headers with sensitive values masked."""
+    redacted: Dict[str, str] = {}
+    try:
+        items = headers.items()
+    except AttributeError:
+        items = list(headers or [])
+    for key, value in items:
+        if str(key).lower() in _SENSITIVE_HEADER_KEYS:
+            redacted[str(key)] = "***REDACTED***"
+        else:
+            redacted[str(key)] = str(value)
+    return redacted
+
+
+def _format_request_body(content: Any) -> str:
+    """Best-effort decode of an httpx request body for logging."""
+    if not content:
+        return ""
+    if isinstance(content, (bytes, bytearray)):
+        raw = bytes(content)
+        if len(raw) > _MAX_LOGGED_BODY_BYTES:
+            return (
+                raw[:_MAX_LOGGED_BODY_BYTES].decode("utf-8", "replace")
+                + f"...[truncated {len(raw) - _MAX_LOGGED_BODY_BYTES} bytes]"
+            )
+        return raw.decode("utf-8", "replace")
+    text = str(content)
+    if len(text) > _MAX_LOGGED_BODY_BYTES:
+        return (
+            text[:_MAX_LOGGED_BODY_BYTES]
+            + f"...[truncated {len(text) - _MAX_LOGGED_BODY_BYTES} chars]"
+        )
+    return text
+
+
+def _log_anthropic_request(
+    request: httpx.Request,
+    *,
+    note: str = "",
+) -> None:
+    """Emit a single INFO log line containing method, URL, headers and body
+    of an outgoing Anthropic HTTP request.
+
+    Sensitive headers are redacted; the body is decoded and truncated to
+    ``_MAX_LOGGED_BODY_BYTES``.  Output goes to a dedicated rotating file
+    (``qwenpaw-anthropic.log``) under ``WORKING_DIR`` and is *not*
+    propagated to the main qwenpaw logger.
+    """
+    try:
+        body_text = _format_request_body(request.content)
+        _get_request_logger().info(
+            "Anthropic request%s | method=%s url=%s headers=%s body=%s",
+            f" [{note}]" if note else "",
+            request.method,
+            str(request.url),
+            _redact_headers(request.headers),
+            body_text,
+        )
+    except Exception:  # pragma: no cover - logging must never raise
+        logger.exception("Failed to log Anthropic request")
+
 
 DASHSCOPE_BASE_URLS = (
     "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -66,7 +211,26 @@ class _StripApiKeyTransport(httpx.AsyncHTTPTransport):
             content=request.content,
             extensions=request.extensions,
         )
+        # Log the *final* outgoing request (after stripping x-api-key) so
+        # the entry reflects exactly what is sent over the wire.
+        _log_anthropic_request(new_request, note="auth_token")
         return await super().handle_async_request(new_request)
+
+
+class _LoggingTransport(httpx.AsyncHTTPTransport):
+    """Async transport that logs every outgoing request.
+
+    Used for ``auth_mode='api_key'`` (and other non-strip flows) so that
+    headers/body of every Anthropic call are visible in the log just like
+    they are for ``auth_token`` mode.
+    """
+
+    async def handle_async_request(
+        self,
+        request: httpx.Request,
+    ) -> httpx.Response:
+        _log_anthropic_request(request, note="api_key")
+        return await super().handle_async_request(request)
 
 
 class AnthropicProvider(Provider):
@@ -88,6 +252,9 @@ class AnthropicProvider(Provider):
     # changes so that the transport is always consistent with the current
     # provider config.
     _strip_http_client: httpx.AsyncClient | None = None
+    # Cached AsyncClient for api_key mode that adds request logging without
+    # stripping any header.
+    _logging_http_client: httpx.AsyncClient | None = None
 
     def _build_default_headers(self) -> Dict[str, str]:
         return dict(self.custom_headers) if self.custom_headers else {}
@@ -99,6 +266,14 @@ class AnthropicProvider(Provider):
                 transport=_StripApiKeyTransport(),
             )
         return self._strip_http_client
+
+    def _get_logging_http_client(self) -> httpx.AsyncClient:
+        """Return a cached AsyncClient backed by _LoggingTransport."""
+        if self._logging_http_client is None:
+            self._logging_http_client = httpx.AsyncClient(
+                transport=_LoggingTransport(),
+            )
+        return self._logging_http_client
 
     def _client(self, timeout: float = 5) -> anthropic.AsyncAnthropic:
         default_headers = self._build_default_headers()
@@ -114,6 +289,7 @@ class AnthropicProvider(Provider):
             api_key=self.api_key,
             base_url=self.base_url,
             default_headers=default_headers,
+            http_client=self._get_logging_http_client(),
             timeout=timeout,
         )
 
@@ -295,6 +471,11 @@ class AnthropicProvider(Provider):
                 if getattr(self, "auth_mode", None) == "auth_token"
                 else None
             ),
+            logging_http_client=(
+                self._get_logging_http_client()
+                if getattr(self, "auth_mode", None) != "auth_token"
+                else None
+            ),
             context_size=self._get_context_size(model_id),
             formatter=_CappingAnthropicFormatter(
                 max_bytes=self.max_inline_media_bytes,
@@ -419,11 +600,13 @@ class _AnthropicChatModelCompat:
         default_headers = kwargs.pop("default_headers", None)
         auth_mode = kwargs.pop("auth_mode", None)
         strip_http_client = kwargs.pop("strip_http_client", None)
+        logging_http_client = kwargs.pop("logging_http_client", None)
 
         class _Compat(AnthropicChatModel):
             _qp_default_headers = default_headers
             _qp_auth_mode = auth_mode
             _qp_strip_http_client = strip_http_client
+            _qp_logging_http_client = logging_http_client
             _qp_cached_client: Any = None
             _qp_cached_client_key: tuple = ()
 
@@ -459,6 +642,10 @@ class _AnthropicChatModelCompat:
                     client_kwargs[
                         "api_key"
                     ] = self.credential.api_key.get_secret_value()
+                    if self._qp_logging_http_client is not None:
+                        client_kwargs[
+                            "http_client"
+                        ] = self._qp_logging_http_client
 
                 self._qp_cached_client = anthropic.AsyncAnthropic(
                     **client_kwargs,
