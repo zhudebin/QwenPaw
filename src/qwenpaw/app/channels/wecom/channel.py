@@ -25,14 +25,15 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from aibot import WSClient, WSClientOptions, generate_req_id
+
+from qwenpaw.schemas import (
     AgentRequest,
     FileContent,
     ImageContent,
     TextContent,
     VideoContent,
 )
-from aibot import WSClient, WSClientOptions, generate_req_id
 
 from ....constant import DEFAULT_MEDIA_DIR
 from ....exceptions import ChannelError
@@ -129,6 +130,7 @@ class WecomChannel(BaseChannel):
     """
 
     channel = "wecom"
+    _STREAM_DELTA_MIN_INTERVAL_S = 0.15
 
     def __init__(
         self,

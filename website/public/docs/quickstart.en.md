@@ -286,11 +286,11 @@ to learn about:
 ## Verify installation (optional)
 
 After the server starts, you can call the Agent API via HTTP to confirm the
-environment is working. The endpoint is **POST** `/api/agent/process`, with
+environment is working. The endpoint is **POST** `/api/console/chat`, with
 JSON body and SSE streaming support. Single-turn example:
 
 ```bash
-curl -N -X POST "http://localhost:8088/api/agent/process" \
+curl -N -X POST "http://localhost:8088/api/console/chat" \
   -H "Content-Type: application/json" \
   -d '{"input":[{"role":"user","content":[{"type":"text","text":"Hello"}]}],"session_id":"session123"}'
 ```
@@ -354,6 +354,39 @@ Chat with QwenPaw in DingTalk, Feishu, QQ, Discord, iMessage, and other apps:
 2. Select the channel to connect
 3. Follow the [Channels](./channels) documentation to obtain credentials and fill them in
 4. After saving, you can send messages to QwenPaw in the corresponding app
+
+#### 📊 Enable Langfuse tracing
+
+Langfuse tracing is optional. If you do not use Langfuse, no extra package or
+configuration is required. To enable it, install the Langfuse SDK and provide
+your Langfuse credentials. `LANGFUSE_BASE_URL` can point to Langfuse Cloud or a
+self-hosted Langfuse instance.
+
+For source or local deployments:
+
+```bash
+pip install "langfuse>=4,<5"
+```
+
+For Docker deployments, build a small custom image:
+
+```dockerfile
+FROM agentscope/qwenpaw:latest
+RUN pip install --no-cache-dir "langfuse>=4,<5"
+```
+
+Then run QwenPaw with Langfuse environment variables:
+
+```bash
+docker run -p 127.0.0.1:8088:8088 \
+  -e LANGFUSE_SECRET_KEY=sk-lf-... \
+  -e LANGFUSE_PUBLIC_KEY=pk-lf-... \
+  -e LANGFUSE_BASE_URL=https://your-langfuse.example.com \
+  -v qwenpaw-data:/app/working \
+  -v qwenpaw-secrets:/app/working.secret \
+  -v qwenpaw-backups:/app/working.backups \
+  qwenpaw-langfuse:latest
+```
 
 #### 🔧 Enable and extend skills
 

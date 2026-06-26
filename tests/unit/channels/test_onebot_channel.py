@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     ContentType,
     TextContent,
 )
@@ -415,7 +415,7 @@ class TestSend:
 
 class TestSendMedia:
     async def test_send_image(self):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             ImageContent,
         )
 
@@ -432,7 +432,7 @@ class TestSendMedia:
         assert args[1]["message"][0]["type"] == "image"
 
     async def test_send_audio(self):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             AudioContent,
         )
 
@@ -445,7 +445,7 @@ class TestSendMedia:
         assert args[1]["message"][0]["type"] == "record"
 
     async def test_send_video(self):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             VideoContent,
         )
 
@@ -461,7 +461,7 @@ class TestSendMedia:
         assert args[1]["message"][0]["type"] == "video"
 
     async def test_send_file_private(self):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             FileContent,
         )
 
@@ -483,7 +483,7 @@ class TestSendMedia:
         )
 
     async def test_send_file_to_group(self):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             FileContent,
         )
 
@@ -509,7 +509,7 @@ class TestSendMedia:
         )
 
     async def test_send_file_no_url_noop(self):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             FileContent,
         )
 
@@ -520,7 +520,7 @@ class TestSendMedia:
         ch._call_api.assert_not_called()
 
     async def test_send_image_to_group(self):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             ImageContent,
         )
 
@@ -828,7 +828,7 @@ class TestPreviewText:
         assert OneBotChannel._preview_text(parts) == "hello world"
 
     def test_non_text_content(self):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             ImageContent,
         )
 
@@ -842,3 +842,81 @@ class TestPreviewText:
 
     def test_empty_parts(self):
         assert OneBotChannel._preview_text([]) == "<non-text>"
+
+
+# ===================================================================
+# Port bind retry during _start_ws_server
+# ===================================================================
+
+
+class TestPortBindGracefulDegradation:
+    """Tests for graceful degradation when port is in use."""
+
+    async def test_port_conflict_does_not_raise(self):
+        """_start_ws_server should not raise on OSError (port in use).
+
+        It should clean up and leave _site as None so the watchdog
+        can retry later.
+        """
+        ch = _make_channel(ws_port=0)
+
+        from unittest.mock import patch
+        from aiohttp.web import TCPSite
+
+        async def always_fail(self_site):
+            raise OSError(98, "address already in use")
+
+        with patch.object(TCPSite, "start", always_fail):
+            # Should NOT raise
+            await ch._start_ws_server()
+
+        # State should be cleaned up for watchdog recovery
+        assert ch._site is None
+        assert ch._runner is None
+        assert ch._app is None
+
+    async def test_watchdog_recovers_after_port_conflict(self):
+        """Watchdog should recover the server after initial port conflict."""
+        ch = _make_channel(ws_port=0)
+        ch._watchdog_interval = 0.05
+
+        from unittest.mock import patch
+        from aiohttp.web import TCPSite
+
+        fail_count = 1
+        original_tcp_start = TCPSite.start
+
+        async def mock_site_start(self_site):
+            nonlocal fail_count
+            if fail_count > 0:
+                fail_count -= 1
+                raise OSError(98, "address already in use")
+            return await original_tcp_start(self_site)
+
+        with patch.object(TCPSite, "start", mock_site_start):
+            await ch.start()
+            # Initial start failed, _site is None
+            assert ch._site is None
+
+        # Watchdog should recover (no patch, real start succeeds)
+        await asyncio.sleep(0.3)
+        assert ch._site is not None
+
+        await ch.stop()
+
+    async def test_non_oserror_still_raises(self):
+        """Non-OSError exceptions should propagate normally."""
+        ch = _make_channel(ws_port=0)
+
+        from unittest.mock import patch
+        from aiohttp.web import TCPSite
+
+        async def fail_with_runtime_error(self_site):
+            raise RuntimeError("unexpected error")
+
+        with patch.object(TCPSite, "start", fail_with_runtime_error):
+            try:
+                await ch._start_ws_server()
+                assert False, "Should have raised RuntimeError"
+            except RuntimeError:
+                pass

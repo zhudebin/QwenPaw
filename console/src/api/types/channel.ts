@@ -19,6 +19,8 @@ export interface DiscordConfig extends BaseChannelConfig {
   http_proxy: string;
   http_proxy_auth: string;
   accept_bot_messages?: boolean;
+  streaming_enabled?: boolean;
+  media_dir?: string;
 }
 
 export interface DingTalkConfig extends BaseChannelConfig {
@@ -31,6 +33,7 @@ export interface DingTalkConfig extends BaseChannelConfig {
   robot_code: string;
   at_sender_on_reply?: boolean;
   streaming_enabled?: boolean;
+  endpoint?: string;
 }
 
 export interface FeishuConfig extends BaseChannelConfig {
@@ -141,7 +144,6 @@ export interface XiaoYiConfig extends BaseChannelConfig {
   ak: string;
   sk: string;
   agent_id: string;
-  ws_url: string;
   task_timeout_ms?: number;
 }
 
@@ -159,6 +161,7 @@ export interface YuanbaoConfig extends BaseChannelConfig {
   app_secret: string;
   api_domain: string;
   media_dir?: string;
+  accept_bot_messages?: boolean;
 }
 
 export interface OneBotConfig extends BaseChannelConfig {

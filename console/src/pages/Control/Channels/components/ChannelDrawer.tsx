@@ -312,6 +312,9 @@ export function ChannelDrawer({
             >
               <Switch />
             </Form.Item>
+            <Form.Item name="media_dir" label={t("channels.wechatMediaDir")}>
+              <Input placeholder={defaultMediaDir} />
+            </Form.Item>
           </>
         );
 
@@ -432,6 +435,13 @@ export function ChannelDrawer({
                   </>
                 );
               }}
+            </Form.Item>
+            <Form.Item
+              name="endpoint"
+              label={t("channels.dingtalkEndpoint")}
+              tooltip={t("channels.dingtalkEndpointTooltip")}
+            >
+              <Input placeholder="https://api.dingtalk.com" />
             </Form.Item>
             <Form.Item
               name="at_sender_on_reply"
@@ -1070,9 +1080,6 @@ export function ChannelDrawer({
             >
               <Input placeholder="Agent ID from XiaoYi platform" />
             </Form.Item>
-            <Form.Item name="ws_url" label="WebSocket URL">
-              <Input placeholder="wss://hag.cloud.huawei.com/openclaw/v1/ws/link" />
-            </Form.Item>
           </>
         );
 
@@ -1218,6 +1225,14 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item name="media_dir" label={t("channels.wechatMediaDir")}>
               <Input placeholder={defaultMediaDir} />
+            </Form.Item>
+            <Form.Item
+              name="accept_bot_messages"
+              label={t("channels.acceptBotMessages")}
+              valuePropName="checked"
+              tooltip={t("channels.acceptBotMessagesTooltip")}
+            >
+              <Switch />
             </Form.Item>
           </>
         );
@@ -1431,7 +1446,8 @@ export function ChannelDrawer({
           {(activeKey === "wecom" ||
             activeKey === "telegram" ||
             activeKey === "dingtalk" ||
-            activeKey === "feishu") && (
+            activeKey === "feishu" ||
+            activeKey === "discord") && (
             <Form.Item
               name="streaming_enabled"
               label={t("channels.streamingEnabled")}

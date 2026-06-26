@@ -110,7 +110,18 @@ SECRET_DIR = (
     .resolve()
 )
 
+# Env key for overriding the OS keychain account used for the master key.
+KEYRING_ACCOUNT_ENV = "QWENPAW_KEYRING_ACCOUNT"
+
 PROJECT_NAME = "QwenPaw"
+
+# Message metadata tags shared across agent middleware and memory managers.
+QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
+AUTO_MEMORY_SEARCH_MESSAGE_TAG = "auto_memory_search"
+AUTO_CONTINUE_MESSAGE_TAG = "auto_continue"
+AUTO_MEMORY_SEARCH_TEXT = (
+    "Find memory relevant to the latest user request and conversation context."
+)
 
 # Subdirectory name inside each agent's workspace that holds cloned / imported
 # coding projects.
@@ -198,6 +209,10 @@ MAX_LOAD_HISTORY_COUNT = 10000
 
 # Env key for app log level (used by CLI and app load for reload child).
 LOG_LEVEL_ENV = "QWENPAW_LOG_LEVEL"
+
+# Fixed desktop backend port. When set, get_stable_port() uses this port
+# instead of auto-assigning.
+QWENPAW_DESKTOP_PORT = _get_env("QWENPAW_DESKTOP_PORT")
 
 # Env to indicate running inside a container (e.g. Docker). Set to 1/true/yes.
 RUNNING_IN_CONTAINER = EnvVarLoader.get_bool(
@@ -347,6 +362,7 @@ try:
     )
 except (TypeError, ValueError):
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = 300.0
+
 
 # Tool guard approval heartbeat interval (seconds).
 # Sends periodic heartbeat messages during approval wait to keep SSE

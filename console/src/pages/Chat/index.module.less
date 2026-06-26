@@ -1,3 +1,20 @@
+/* Chat page root layout */
+.chatPageRoot {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+}
+
+/* Main chat area (left of history panel) */
+.chatMainArea {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
 /* Disabled input overlay */
 .chatDisabledOverlay {
   position: relative;
@@ -39,6 +56,17 @@
     }
   }
 
+  /* Wide mode: widen bubble list and sender while keeping spacing */
+  &.wideMode :global {
+    .qwenpaw-bubble-list {
+      max-width: none !important;
+    }
+
+    .qwenpaw-chat-anywhere-sender-wrapper {
+      max-width: none !important;
+    }
+  }
+
   /* Custom scrollbar */
   &::-webkit-scrollbar {
     width: 8px;
@@ -74,6 +102,34 @@
 
   :global(.dark-mode) & {
     scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  }
+}
+
+/* Right-side history panel */
+.historyPanel {
+  width: 330px;
+  flex-shrink: 0;
+  align-self: stretch;
+  overflow: hidden;
+  position: relative;
+}
+
+@media (max-width: 900px) {
+  .historyPanel {
+    position: fixed;
+    top: 90px;
+    right: 0;
+    bottom: 0;
+    width: min(330px, 85vw);
+    z-index: 1000;
+    box-shadow: -4px 0 12px rgba(0, 0, 0, 0.15);
+    border-radius: 12px 0 0 12px;
+  }
+  .historyPanelMask {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 999;
   }
 }
 
@@ -175,6 +231,21 @@
   }
 }
 
+/* Fix #5480: Assistant response markdown may temporarily fall back to the
+ * vendor Raw renderer while streaming. Raw renders newline-bearing text as
+ * normal div children, so keep whitespace and wrap long lines on the host side.
+ */
+.chatMessagesArea :global {
+  [class*="bubble-start"] [class*="markdown"],
+  [class*="bubble-assistant"] [class*="markdown"] {
+    min-width: 0;
+    max-width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+}
+
 /* Dark mode scrollbar for disabled overlay */
 :global(.dark-mode) {
   .chatDisabledOverlay :global([class*="chat-anywhere-input"]),
@@ -182,5 +253,42 @@
   .chatDisabledOverlay :global(textarea),
   .chatDisabledOverlay :global(input[type="text"]) {
     background-color: #2a2a2a !important;
+  }
+}
+
+/* ---- Rate-limit guidance banner ---- */
+.rateLimitBanner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(250, 173, 20, 0.08);
+  border-top: 1px solid rgba(250, 173, 20, 0.2);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.rateLimitText {
+  font-size: 13px;
+  color: #d48806;
+  flex: 1;
+  min-width: 120px;
+}
+
+.rateLimitActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+:global(.dark-mode) {
+  .rateLimitBanner {
+    background: rgba(250, 173, 20, 0.06);
+    border-top-color: rgba(250, 173, 20, 0.15);
+  }
+
+  .rateLimitText {
+    color: #ffc53d;
   }
 }

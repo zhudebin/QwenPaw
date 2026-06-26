@@ -16,7 +16,7 @@ from fastapi import (
 )
 from pydantic import BaseModel, Field
 
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     AppBaseException,
 )
 
@@ -35,8 +35,10 @@ router = APIRouter(prefix="/models", tags=["models"])
 
 ChatModelName = Literal[
     "OpenAIChatModel",
+    "OpenAIResponseModel",
     "AnthropicChatModel",
     "GeminiChatModel",
+    "DashScopeChatModel",
 ]
 
 # effective: agent-specific if set, otherwise global
@@ -667,6 +669,24 @@ async def set_active_model(
             if "provider" in lower_msg and "not found" in lower_msg:
                 raise HTTPException(status_code=404, detail=message) from exc
             raise HTTPException(status_code=400, detail=message) from exc
+
+        # Sync to active agent if its active_model is unset (#4937)
+        try:
+            workspace = await get_agent_for_request(request)
+            agent_config = load_agent_config(workspace.agent_id)
+            if (
+                not agent_config.active_model
+                or not agent_config.active_model.provider_id
+            ):
+                agent_config.active_model = ModelSlotConfig(
+                    provider_id=body.provider_id,
+                    model=body.model,
+                )
+                save_agent_config(workspace.agent_id, agent_config)
+                schedule_agent_reload(request, workspace.agent_id)
+        except Exception:
+            pass
+
         return ActiveModelsInfo(active_llm=manager.get_active_model())
 
     if not body.agent_id:

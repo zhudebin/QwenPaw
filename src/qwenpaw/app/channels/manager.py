@@ -86,6 +86,9 @@ class ChannelManager:
         # Track enqueue tasks for graceful shutdown
         self._enqueue_tasks: set[asyncio.Task] = set()
 
+        # Track channel-start tasks for graceful shutdown
+        self._start_tasks: set[asyncio.Task] = set()
+
     @classmethod
     def from_env(
         cls,
@@ -95,8 +98,7 @@ class ChannelManager:
         """
         Create channels from env and inject unified process
         (AgentRequest -> Event stream).
-        process is typically runner.stream_query, handled by AgentApp's
-        process endpoint.
+        process is typically workspace.stream_query.
         on_last_dispatch: called when a user send+reply was sent.
         """
         available = get_available_channels()
@@ -484,15 +486,33 @@ class ChannelManager:
             f"Starting channels: {[g.channel for g in snapshot]}",
         )
 
-        # Start each channel
-        for g in snapshot:
+        # Fire-and-forget: channels connect in background so startup
+        # is not blocked by slow network handshakes (e.g. WebSocket).
+        async def _start_channel(g):
             try:
                 await g.start()
             except Exception:
-                logger.exception(f"failed to start channels={g.channel}")
+                logger.exception(
+                    f"failed to start channel={g.channel}",
+                )
+
+        for g in snapshot:
+            task = asyncio.create_task(_start_channel(g))
+            self._start_tasks.add(task)
+            task.add_done_callback(self._start_tasks.discard)
 
     async def stop_all(self) -> None:
         """Stop all channels and queue manager."""
+        # Cancel in-progress channel-start tasks
+        if self._start_tasks:
+            for task in self._start_tasks:
+                task.cancel()
+            await asyncio.wait(
+                self._start_tasks,
+                timeout=3.0,
+            )
+            self._start_tasks.clear()
+
         # Cancel all pending enqueue tasks
         if self._enqueue_tasks:
             logger.info(

@@ -219,24 +219,23 @@ Before restoring, the system prompts to create a snapshot of the current state. 
 
 Memory configuration is located in `agent.json` under `running.reme_light_memory_config`:
 
-| Field                           | Description                                                                        | Default        |
-| ------------------------------- | ---------------------------------------------------------------------------------- | -------------- |
-| `summarize_when_compact`        | Whether to save long-term memory in background during context compaction           | `true`         |
-| `auto_memory_interval`          | Auto memory every N user queries. null disables periodic auto memory               | `null`         |
-| `dream_cron`                    | Cron expression for dream-based memory optimization job (empty string to disable)  | `"0 23 * * *"` |
-| `rebuild_memory_index_on_start` | Whether to clear and rebuild memory search index on startup; false to skip rebuild | `false`        |
-| `recursive_file_watcher`        | Whether to watch memory directory recursively (includes subdirectories)            | `false`        |
+| Field                           | Description                                                                           | Default        |
+| ------------------------------- | ------------------------------------------------------------------------------------- | -------------- |
+| `summarize_when_compact`        | Whether to save long-term memory in background during context compaction              | `true`         |
+| `auto_memory_interval`          | Auto memory every N user queries. `1` runs after every user message; null disables it | `1`            |
+| `dream_cron`                    | Cron expression for dream-based memory optimization job (empty string to disable)     | `"0 23 * * *"` |
+| `rebuild_memory_index_on_start` | Whether to clear and rebuild memory search index on startup; false to skip rebuild    | `false`        |
+| `recursive_file_watcher`        | Whether to watch memory directory recursively (includes subdirectories)               | `false`        |
 
 ### Auto Memory Search Configuration
 
 Configure in `running.reme_light_memory_config.auto_memory_search_config`:
 
-| Field         | Description                                                   | Default |
-| ------------- | ------------------------------------------------------------- | ------- |
-| `enabled`     | Whether to auto search memory on every conversation turn      | `false` |
-| `max_results` | Maximum results for auto memory search                        | `1`     |
-| `min_score`   | Minimum relevance score threshold for auto search (0.0 ~ 1.0) | `0.1`   |
-| `timeout`     | Timeout in seconds for auto memory search                     | `10.0`  |
+| Field         | Description                                              | Default |
+| ------------- | -------------------------------------------------------- | ------- |
+| `enabled`     | Whether to auto search memory on every conversation turn | `false` |
+| `max_results` | Maximum results for auto memory search                   | `1`     |
+| `timeout`     | Timeout in seconds for auto memory search                | `10.0`  |
 
 ### Embedding Configuration (Optional)
 
