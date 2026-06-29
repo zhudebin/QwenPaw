@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  qwenpaw:
+    image: agentscope/qwenpaw:latest
+    container_name: qwenpaw
+    restart: always
+    ports:
+      - "8088:8088"
+    environment:
+     - QWENPAW_AUTH_ENABLED=true
+     - QWENPAW_AUTH_USERNAME=admin
+     - QWENPAW_AUTH_PASSWORD=admin
+    volumes:
+      - /Users/devinzhu/Documents/workspace/QwenPaw/data/ws:/app/working:z
+      - /Users/devinzhu/Documents/workspace/QwenPaw/data/ws_secret:/app/working.secret:z
+      - /Users/devinzhu/Documents/workspace/QwenPaw/data/ws_backup:/app/working.backups:z

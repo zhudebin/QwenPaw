@@ -1,0 +1,21 @@
+version: '3.8'
+
+# Override file for local-source builds.
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+#
+# Inherits ports / volumes / environment from docker-compose.yml; only swaps
+# the published image for a fresh build of the current source tree, so local
+# Python changes (e.g. providers/anthropic_provider.py) are picked up.
+
+services:
+  qwenpaw:
+    image: qwenpaw:local
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      args:
+        # Public Docker Hub mirrors that don't require ACR access.
+        NODE_IMAGE: node:20-slim
+        UV_IMAGE: ghcr.io/astral-sh/uv:latest
+    container_name: qwenpaw
