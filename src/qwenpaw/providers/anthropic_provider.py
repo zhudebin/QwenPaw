@@ -107,8 +107,37 @@ def _get_request_logger() -> logging.Logger:
 
 
 def _redact_headers(headers: Any) -> Dict[str, str]:
-    """Return a dict copy of headers with sensitive values masked."""
+    """Return a dict copy of headers with sensitive values masked.
+
+    Prefers ``headers.raw`` (the *exact* bytes that httpx will write to
+    the wire, preserving the original case) so the log faithfully
+    reflects what the server sees.  Falls back to ``.items()`` (which
+    httpx normalizes to lowercase) for non-httpx header containers.
+    """
     redacted: Dict[str, str] = {}
+
+    raw = getattr(headers, "raw", None)
+    if raw is not None:
+        try:
+            for k_bytes, v_bytes in raw:
+                key = (
+                    k_bytes.decode("ascii", "replace")
+                    if isinstance(k_bytes, (bytes, bytearray))
+                    else str(k_bytes)
+                )
+                value = (
+                    v_bytes.decode("utf-8", "replace")
+                    if isinstance(v_bytes, (bytes, bytearray))
+                    else str(v_bytes)
+                )
+                if key.lower() in _SENSITIVE_HEADER_KEYS:
+                    redacted[key] = "***REDACTED***"
+                else:
+                    redacted[key] = value
+            return redacted
+        except Exception:  # pragma: no cover - fall back to items()
+            redacted.clear()
+
     try:
         items = headers.items()
     except AttributeError:
