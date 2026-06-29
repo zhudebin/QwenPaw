@@ -187,7 +187,7 @@ def _log_anthropic_request(
     try:
         body_text = _format_request_body(request.content)
         _get_request_logger().info(
-            "Anthropic request%s | method=%s url=%s headers=%s body=%s",
+            "Anthropic v2 request%s | method=%s url=%s headers=%s body=%s",
             f" [{note}]" if note else "",
             request.method,
             str(request.url),
@@ -224,15 +224,21 @@ class _StripApiKeyTransport(httpx.AsyncHTTPTransport):
         self,
         request: httpx.Request,
     ) -> httpx.Response:
-        filtered = [
-            (k, v)
-            for k, v in request.headers.items()
-            if k.lower() != "x-api-key"
+        # IMPORTANT: iterate over ``headers.raw`` (list of byte tuples that
+        # preserve the *original* casing) instead of ``headers.items()``
+        # (which httpx normalizes to lowercase).  Re-building the Request
+        # from lowercased names would force every header on the wire to be
+        # lowercase, breaking proxies that are (incorrectly) case-sensitive
+        # for headers such as ``Venus-Sticky-Routing``.
+        filtered_raw = [
+            (k_bytes, v_bytes)
+            for k_bytes, v_bytes in request.headers.raw
+            if k_bytes.lower() != b"x-api-key"
         ]
         new_request = httpx.Request(
             method=request.method,
             url=request.url,
-            headers=filtered,
+            headers=filtered_raw,
             content=request.content,
             extensions=request.extensions,
         )
