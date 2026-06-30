@@ -287,6 +287,73 @@ def _prompt_cache_enabled() -> bool:
     return raw.strip().lower() not in {"0", "false", "no", "off", ""}
 
 
+def _dump_anthropic_request_on_error(
+    *,
+    pre_messages: Any,
+    post_messages: Any,
+    tools: Any,
+    tool_choice: Any,
+    structured_model: Any,
+    generate_kwargs: Dict[str, Any],
+    exception: BaseException,
+) -> None:
+    """Write the full Anthropic request inputs to ``/tmp`` whenever the
+    upstream call raises.  Each invocation gets its own filename so a
+    later successful call cannot overwrite the failing snapshot.
+
+    The file is intended for ad-hoc forensics after a 400/5xx failure;
+    it contains the request as it was about to be sent (after cache
+    injection) plus the original pre-injection messages, the exception
+    type/message, and a minimal context block.
+    """
+    out_dir = os.environ.get(
+        "QWENPAW_ANTHROPIC_DUMP_DIR",
+        "/tmp",
+    )
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+    except OSError:
+        out_dir = "/tmp"
+
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    fname = f"qwenpaw-anthropic-error-{ts}-{os.getpid()}-{id(exception):x}.json"
+    fpath = os.path.join(out_dir, fname)
+
+    payload: Dict[str, Any] = {
+        "exception_type": type(exception).__name__,
+        "exception_repr": repr(exception),
+        "tool_choice": tool_choice,
+        "structured_model": (
+            None if structured_model is None else repr(structured_model)
+        ),
+        "generate_kwargs": {
+            k: v for k, v in (generate_kwargs or {}).items()
+            if isinstance(v, (str, int, float, bool, type(None), list, dict))
+        },
+        "tools": tools,
+        "pre_messages": pre_messages,
+        "post_messages": post_messages,
+    }
+    body = getattr(exception, "body", None)
+    if body is not None:
+        payload["exception_body"] = body
+    response = getattr(exception, "response", None)
+    if response is not None:
+        payload["exception_status_code"] = getattr(
+            response, "status_code", None,
+        )
+
+    try:
+        with open(fpath, "w", encoding="utf-8") as fp:
+            json.dump(payload, fp, ensure_ascii=False, default=str, indent=2)
+    except Exception:  # pragma: no cover - forensics best-effort
+        logger.exception("Could not write %s", fpath)
+        return
+    logger.error(
+        "Anthropic request snapshot dumped to %s (exc=%s)",
+        fpath, type(exception).__name__,
+    )
+
 class _CachingAnthropicChatModel(AnthropicChatModel):
     """An :class:`AnthropicChatModel` that automatically attaches
     ``cache_control: {"type": "ephemeral"}`` breakpoints to enable
@@ -324,6 +391,8 @@ class _CachingAnthropicChatModel(AnthropicChatModel):
         structured_model: Any = None,
         **generate_kwargs: Any,
     ) -> Any:
+        # Snapshot of pre-injection messages for crash forensics.
+        pre_messages = messages
         if _prompt_cache_enabled():
             try:
                 tools = self._inject_tools_cache(tools)
@@ -333,13 +402,31 @@ class _CachingAnthropicChatModel(AnthropicChatModel):
                     "Failed to inject Anthropic prompt cache breakpoints; "
                     "falling back to uncached request",
                 )
-        return await super().__call__(
-            messages=messages,
-            tools=tools,
-            tool_choice=tool_choice,
-            structured_model=structured_model,
-            **generate_kwargs,
-        )
+        try:
+            return await super().__call__(
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                structured_model=structured_model,
+                **generate_kwargs,
+            )
+        except Exception as exc:  # pragma: no cover - diagnostics only
+            # On any 4xx/5xx from Anthropic, dump the exact request inputs
+            # to /tmp so the offending payload can never be lost to log
+            # rotation or overwritten by a subsequent successful call.
+            try:
+                _dump_anthropic_request_on_error(
+                    pre_messages=pre_messages,
+                    post_messages=messages,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    structured_model=structured_model,
+                    generate_kwargs=generate_kwargs,
+                    exception=exc,
+                )
+            except Exception:  # pragma: no cover - dumping must never mask
+                logger.exception("Failed to dump Anthropic request on error")
+            raise
 
     @staticmethod
     def _inject_tools_cache(
