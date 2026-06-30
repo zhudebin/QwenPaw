@@ -19,7 +19,9 @@ services:
      - QWENPAW_AUTH_ENABLED=true
      - QWENPAW_AUTH_USERNAME=admin
      - QWENPAW_AUTH_PASSWORD=admin
+     - TZ=Asia/Shanghai
     volumes:
       - qwenpaw-data:/app/working:z
       - qwenpaw-secrets:/app/working.secret:z
       - qwenpaw-backups:/app/working.backups:z
+      - /etc/localtime:/etc/localtime:ro

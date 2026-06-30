@@ -60,3 +60,9 @@ sessions_mount_dir
 *.log
 logs
 cookbook
+
+# Vendored dependencies (e.g. agentscope) — keep entire tree.
+# Must be at the bottom so it overrides earlier wildcards
+# like *.md / tests / __pycache__ / *.py[cod].
+!vendor
+!vendor/**
