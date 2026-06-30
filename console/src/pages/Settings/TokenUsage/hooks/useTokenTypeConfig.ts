@@ -9,6 +9,8 @@ interface UseTokenTypeConfigProps {
       prompt_tokens: number;
       completion_tokens: number;
       call_count: number;
+      cache_creation_tokens?: number;
+      cache_read_tokens?: number;
     }
   > | null;
   startDate: Dayjs;
@@ -20,6 +22,8 @@ const TYPE_COLORS: Record<string, string> = {
   "Prompt Tokens": "#1677ff",
   "Completion Tokens": "#52c41a",
   "Total Tokens": "#fa8c16",
+  "Cache Creation": "#722ed1",
+  "Cache Read": "#13c2c2",
 };
 
 export function useTokenTypeConfig({
@@ -40,11 +44,22 @@ export function useTokenTypeConfig({
       current = current.add(1, "day");
     }
 
-    const allTypes = [
+    // Detect whether any day in the range carries Anthropic cache stats.
+    // If not (e.g. all OpenAI/Dashscope), drop the two cache series so
+    // the chart stays clean.
+    const hasCache = Object.values(byDate).some(
+      (d) => (d.cache_creation_tokens ?? 0) > 0 || (d.cache_read_tokens ?? 0) > 0,
+    );
+
+    const baseTypes = [
       "Prompt Tokens",
       "Completion Tokens",
       "Total Tokens",
     ] as const;
+    const cacheTypes = ["Cache Creation", "Cache Read"] as const;
+    const allTypes: readonly string[] = hasCache
+      ? [...baseTypes, ...cacheTypes]
+      : baseTypes;
     const colors = allTypes.map((type) => TYPE_COLORS[type]);
 
     const chartData: Array<{
@@ -58,12 +73,16 @@ export function useTokenTypeConfig({
         prompt_tokens: 0,
         completion_tokens: 0,
         call_count: 0,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0,
       };
 
       const typeValues: Record<string, number> = {
         "Prompt Tokens": dayStats.prompt_tokens,
         "Completion Tokens": dayStats.completion_tokens,
         "Total Tokens": dayStats.prompt_tokens + dayStats.completion_tokens,
+        "Cache Creation": dayStats.cache_creation_tokens ?? 0,
+        "Cache Read": dayStats.cache_read_tokens ?? 0,
       };
 
       allTypes.forEach((type) => {

@@ -20,6 +20,45 @@ export default defineConfig(({ mode }) => {
   // Use a dedicated Vite-prefixed key so unrelated shell BASE_URL values don't leak into the build.
   const apiBaseUrl = env.VITE_API_BASE_URL ?? "";
 
+  // ---- dev server proxy ---------------------------------------------------
+  // In `vite dev` mode the React app runs on :5173 while the QwenPaw backend
+  // runs on :8088 by default. To keep the frontend talking to the backend
+  // (REST + SSE + WebSocket) without hard-coding URLs in code, we proxy a
+  // fixed set of backend prefixes to QWENPAW_BACKEND (default 127.0.0.1:8088).
+  // The list mirrors the routers registered in src/qwenpaw/app/server/.
+  // Override with `QWENPAW_BACKEND=host:port npm run dev` if needed.
+  const backendTarget =
+    env.QWENPAW_BACKEND && env.QWENPAW_BACKEND.length > 0
+      ? env.QWENPAW_BACKEND.startsWith("http")
+        ? env.QWENPAW_BACKEND
+        : `http://${env.QWENPAW_BACKEND}`
+      : "http://127.0.0.1:8088";
+  const proxyPaths = [
+    "/api",
+    "/health",
+    "/healthz",
+    "/login",
+    "/logout",
+    "/auth",
+    "/static",
+    "/files",
+    "/workspace",
+    "/v1",
+    "/sse",
+    "/events",
+    "/ws",
+  ];
+  const proxy: Record<string, unknown> = Object.fromEntries(
+    proxyPaths.map((p) => [
+      p,
+      {
+        target: backendTarget,
+        changeOrigin: true,
+        ws: true, // upgrade /ws (and any websocket) requests
+      },
+    ]),
+  );
+
   return {
     define: {
       VITE_API_BASE_URL: JSON.stringify(apiBaseUrl),
@@ -46,6 +85,7 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "0.0.0.0",
       port: 5173,
+      proxy,
     },
     test: {
       globals: true,

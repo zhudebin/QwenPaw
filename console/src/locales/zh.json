@@ -1098,7 +1098,11 @@
     "allSelected": "全部",
     "itemsSelected": "已选 {{count}} 项",
     "selectModels": "选择模型",
-    "selectTokenTypes": "选择 Token 类型"
+    "selectTokenTypes": "选择 Token 类型",
+    "cacheHitRate": "缓存命中率",
+    "savedTokens": "节省 Token",
+    "cacheCreationTokens": "缓存创建",
+    "cacheReadTokens": "缓存命中"
   },
   "agentStats": {
     "title": "智能体统计",

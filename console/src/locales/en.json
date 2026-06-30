@@ -1258,7 +1258,11 @@
     "allSelected": "All",
     "itemsSelected": "{{count}} selected",
     "selectModels": "Select models",
-    "selectTokenTypes": "Select token types"
+    "selectTokenTypes": "Select token types",
+    "cacheHitRate": "Cache Hit Rate",
+    "savedTokens": "Saved Tokens",
+    "cacheCreationTokens": "Cache Creation",
+    "cacheReadTokens": "Cache Read"
   },
   "agentStats": {
     "title": "Agent Statistics",

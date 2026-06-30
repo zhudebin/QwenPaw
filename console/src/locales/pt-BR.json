@@ -1161,7 +1161,11 @@
     "date": "Date",
     "refresh": "Atualizar",
     "loadFailed": "Falha ao load token usage",
-    "noData": "No token usage data in the selected period"
+    "noData": "No token usage data in the selected period",
+    "cacheHitRate": "Taxa de Acerto de Cache",
+    "savedTokens": "Tokens Economizados",
+    "cacheCreationTokens": "Criação de Cache",
+    "cacheReadTokens": "Leitura de Cache"
   },
   "agentStats": {
     "title": "Estatisticas dos Agentes",

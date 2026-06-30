@@ -85,6 +85,8 @@ function TokenUsagePage() {
       prompt_tokens: stats.prompt_tokens,
       completion_tokens: stats.completion_tokens,
       call_count: stats.call_count,
+      cache_creation_tokens: stats.cache_creation_tokens,
+      cache_read_tokens: stats.cache_read_tokens,
     }));
   }, [aggregatedData?.by_model]);
 
@@ -97,6 +99,8 @@ function TokenUsagePage() {
         prompt_tokens: stats.prompt_tokens,
         completion_tokens: stats.completion_tokens,
         call_count: stats.call_count,
+        cache_creation_tokens: stats.cache_creation_tokens,
+        cache_read_tokens: stats.cache_read_tokens,
       }))
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [aggregatedData?.by_date]);
@@ -151,6 +155,10 @@ function TokenUsagePage() {
               aggregatedData.total_prompt_tokens +
               aggregatedData.total_completion_tokens
             }
+            totalCacheCreationTokens={
+              aggregatedData.total_cache_creation_tokens
+            }
+            totalCacheReadTokens={aggregatedData.total_cache_read_tokens}
           />
         )}
 

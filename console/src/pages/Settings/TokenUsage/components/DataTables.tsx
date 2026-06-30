@@ -9,6 +9,8 @@ interface ByModelData {
   prompt_tokens: number;
   completion_tokens: number;
   call_count: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
 }
 
 interface ByDateData {
@@ -17,6 +19,8 @@ interface ByDateData {
   prompt_tokens: number;
   completion_tokens: number;
   call_count: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
 }
 
 interface DataTablesProps {
@@ -26,6 +30,58 @@ interface DataTablesProps {
 
 export function DataTables({ byModelData, byDateData }: DataTablesProps) {
   const { t } = useTranslation();
+
+  // Only show cache columns when there is at least one non-zero value —
+  // keeps the table compact for non-anthropic providers.
+  const showCacheCols =
+    byModelData.some(
+      (r) => r.cache_creation_tokens > 0 || r.cache_read_tokens > 0,
+    ) ||
+    byDateData.some(
+      (r) => r.cache_creation_tokens > 0 || r.cache_read_tokens > 0,
+    );
+
+  const cacheColsForModel = showCacheCols
+    ? [
+        {
+          title: t("tokenUsage.cacheCreationTokens"),
+          dataIndex: "cache_creation_tokens",
+          key: "cache_creation_tokens",
+          render: (v: number) => formatCompact(v ?? 0),
+          sorter: (a: ByModelData, b: ByModelData) =>
+            a.cache_creation_tokens - b.cache_creation_tokens,
+        },
+        {
+          title: t("tokenUsage.cacheReadTokens"),
+          dataIndex: "cache_read_tokens",
+          key: "cache_read_tokens",
+          render: (v: number) => formatCompact(v ?? 0),
+          sorter: (a: ByModelData, b: ByModelData) =>
+            a.cache_read_tokens - b.cache_read_tokens,
+        },
+      ]
+    : [];
+
+  const cacheColsForDate = showCacheCols
+    ? [
+        {
+          title: t("tokenUsage.cacheCreationTokens"),
+          dataIndex: "cache_creation_tokens",
+          key: "cache_creation_tokens",
+          render: (v: number) => formatCompact(v ?? 0),
+          sorter: (a: ByDateData, b: ByDateData) =>
+            a.cache_creation_tokens - b.cache_creation_tokens,
+        },
+        {
+          title: t("tokenUsage.cacheReadTokens"),
+          dataIndex: "cache_read_tokens",
+          key: "cache_read_tokens",
+          render: (v: number) => formatCompact(v ?? 0),
+          sorter: (a: ByDateData, b: ByDateData) =>
+            a.cache_read_tokens - b.cache_read_tokens,
+        },
+      ]
+    : [];
 
   const byModelColumns = [
     {
@@ -49,6 +105,7 @@ export function DataTables({ byModelData, byDateData }: DataTablesProps) {
       sorter: (a: ByModelData, b: ByModelData) =>
         a.completion_tokens - b.completion_tokens,
     },
+    ...cacheColsForModel,
     {
       title: t("tokenUsage.totalTokens"),
       key: "total_tokens",
@@ -90,6 +147,7 @@ export function DataTables({ byModelData, byDateData }: DataTablesProps) {
       sorter: (a: ByDateData, b: ByDateData) =>
         a.completion_tokens - b.completion_tokens,
     },
+    ...cacheColsForDate,
     {
       title: t("tokenUsage.totalTokens"),
       key: "total_tokens",
