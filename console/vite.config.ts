@@ -1,5 +1,5 @@
 /// <reference types="vitest" />
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, type ProxyOptions } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
@@ -48,7 +48,7 @@ export default defineConfig(({ mode }) => {
     "/events",
     "/ws",
   ];
-  const proxy: Record<string, unknown> = Object.fromEntries(
+  const proxy: Record<string, ProxyOptions> = Object.fromEntries(
     proxyPaths.map((p) => [
       p,
       {
