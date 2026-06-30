@@ -475,11 +475,27 @@ def _get_formatter_for_chat_model(
 
     Returns:
         Corresponding formatter class, defaults to OpenAIChatFormatter
+
+    Notes:
+        Uses subclass-aware lookup: providers may wrap base chat models
+        with subclasses (e.g. ``_CachingAnthropicChatModel`` extends
+        ``AnthropicChatModel`` to inject prompt-cache breakpoints).
+        Plain ``dict.get()`` would miss those subclasses and fall back
+        to OpenAIChatFormatter, producing OpenAI-shaped requests that
+        Anthropic rejects with ``messages.N.role: Field required``.
     """
-    return _CHAT_MODEL_FORMATTER_MAP.get(
-        chat_model_class,
-        OpenAIChatFormatter,
-    )
+    # Fast path: exact match.
+    formatter_class = _CHAT_MODEL_FORMATTER_MAP.get(chat_model_class)
+    if formatter_class is not None:
+        return formatter_class
+    # Subclass-aware fallback: walk MRO to find the closest registered
+    # base model. This makes provider-side wrappers (e.g. caching layers)
+    # transparent to the formatter mapping.
+    for base in chat_model_class.__mro__[1:]:
+        formatter_class = _CHAT_MODEL_FORMATTER_MAP.get(base)
+        if formatter_class is not None:
+            return formatter_class
+    return OpenAIChatFormatter
 
 
 def _substitute_video_blocks(
