@@ -3,15 +3,17 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
+import os
 import time
 from datetime import datetime  # noqa: F401  # kept for parity with main
 from pathlib import Path
 from typing import Any, Dict, List
 
 import httpx
-from agentscope.model import ChatModelBase
+from agentscope.model import AnthropicChatModel, ChatModelBase
 import anthropic
 
 from qwenpaw.providers.multimodal_prober import (
@@ -264,6 +266,187 @@ class _LoggingTransport(httpx.AsyncHTTPTransport):
         return await super().handle_async_request(request)
 
 
+# ---------------------------------------------------------------------------
+# Prompt caching helpers
+# ---------------------------------------------------------------------------
+
+# Default ``cache_control`` block. Anthropic currently only supports
+# ``ephemeral`` (5-minute TTL) for the public API.
+_EPHEMERAL_CACHE_CONTROL: Dict[str, str] = {"type": "ephemeral"}
+
+# Roll-out switch.  Defaults to ON; set ``QWENPAW_PROMPT_CACHE_ENABLED=0``
+# (or ``false``/``no``/``off``) to disable cache_control injection at
+# runtime without redeploying.
+_PROMPT_CACHE_ENV_VAR = "QWENPAW_PROMPT_CACHE_ENABLED"
+
+
+def _prompt_cache_enabled() -> bool:
+    raw = os.environ.get(_PROMPT_CACHE_ENV_VAR)
+    if raw is None:
+        return True
+    return raw.strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+class _CachingAnthropicChatModel(AnthropicChatModel):
+    """An :class:`AnthropicChatModel` that automatically attaches
+    ``cache_control: {"type": "ephemeral"}`` breakpoints to enable
+    Anthropic prompt caching.
+
+    Three breakpoints are placed (per Anthropic's "up to 4 cache
+    breakpoints per request" rule) on the most-stable parts of the
+    payload, in priority order:
+
+    1. The **last tool** in ``tools`` — tool schemas rarely change, so
+       caching them yields the highest hit rate across turns.
+    2. The **system prompt** — the system message is constant for the
+       lifetime of an agent.  We rewrite it from the plain-string form
+       into Anthropic's structured ``[{"type": "text", "text": ...,
+       "cache_control": {...}}]`` form so the breakpoint can be carried.
+    3. The **last message block** — caching the conversation up to (and
+       including) the latest user/assistant turn lets follow-up turns
+       reuse all prior context.
+
+    Injection is purely additive: existing ``cache_control`` values
+    (whether attached by the caller upstream or already present on a
+    structured content block) are respected and never overwritten.
+    Empty / missing pieces are skipped silently so e.g. a tools-less
+    request stays valid.
+
+    The behaviour can be disabled at runtime via the environment
+    variable ``QWENPAW_PROMPT_CACHE_ENABLED=0``.
+    """
+
+    async def __call__(  # type: ignore[override]
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]] | None = None,
+        tool_choice: Any = None,
+        structured_model: Any = None,
+        **generate_kwargs: Any,
+    ) -> Any:
+        if _prompt_cache_enabled():
+            try:
+                tools = self._inject_tools_cache(tools)
+                messages = self._inject_messages_cache(messages)
+            except Exception:  # pragma: no cover - never break the call
+                logger.exception(
+                    "Failed to inject Anthropic prompt cache breakpoints; "
+                    "falling back to uncached request",
+                )
+        return await super().__call__(
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            structured_model=structured_model,
+            **generate_kwargs,
+        )
+
+    @staticmethod
+    def _inject_tools_cache(
+        tools: List[Dict[str, Any]] | None,
+    ) -> List[Dict[str, Any]] | None:
+        """Attach ``cache_control`` to the last tool in ``tools``.
+
+        The vendored AgentScope ``_format_tools_json_schemas`` already
+        forwards a top-level ``cache_control`` key on each schema to the
+        Anthropic API, so we only need to set it here.
+        """
+        if not tools:
+            return tools
+        # Defensive copy: never mutate the caller's list/elements.
+        out = list(tools)
+        last = copy.copy(out[-1])
+        if "cache_control" not in last:
+            last["cache_control"] = dict(_EPHEMERAL_CACHE_CONTROL)
+            out[-1] = last
+        return out
+
+    @classmethod
+    def _inject_messages_cache(
+        cls,
+        messages: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Rewrite ``messages`` so that:
+
+        * the system prompt (if any, must be ``messages[0]`` per Anthropic
+          convention) carries a ``cache_control`` breakpoint, and
+        * the **last** content block of the **last** message carries a
+          ``cache_control`` breakpoint.
+        """
+        if not messages:
+            return messages
+
+        out = [dict(m) for m in messages]
+
+        # 1. System breakpoint — only when the first message is a system
+        #    role.  We rewrite ``content`` to the structured array form
+        #    so it can hold cache_control.
+        if out and out[0].get("role") == "system":
+            sys_msg = out[0]
+            sys_msg["content"] = cls._content_with_cache(
+                sys_msg.get("content"),
+            )
+
+        # 2. Last-message breakpoint.  Skip the system message if it is
+        #    the only message (degenerate case; system already cached).
+        last_idx = len(out) - 1
+        if last_idx >= 0 and not (
+            last_idx == 0 and out[0].get("role") == "system"
+        ):
+            last_msg = out[last_idx]
+            last_msg["content"] = cls._content_with_cache(
+                last_msg.get("content"),
+            )
+
+        return out
+
+    @staticmethod
+    def _content_with_cache(content: Any) -> Any:
+        """Return a copy of ``content`` with a trailing
+        ``cache_control: {"type": "ephemeral"}`` breakpoint applied to
+        its last text block.
+
+        Accepts both the plain-string form and the structured list form
+        used by Anthropic's content-blocks API.  If the content is
+        empty or unrecognized it is returned unchanged.
+        """
+        if content is None:
+            return content
+
+        # Plain string -> wrap into a single text block carrying the
+        # cache_control breakpoint.  This is the canonical way to attach
+        # cache_control to the system prompt.
+        if isinstance(content, str):
+            if not content:
+                return content
+            return [
+                {
+                    "type": "text",
+                    "text": content,
+                    "cache_control": dict(_EPHEMERAL_CACHE_CONTROL),
+                },
+            ]
+
+        # Structured list of blocks -> attach to the last block that
+        # supports it (text/image/document/tool_result/tool_use all do).
+        if isinstance(content, list):
+            if not content:
+                return content
+            new_list = list(content)
+            last_block = new_list[-1]
+            if isinstance(last_block, dict):
+                if "cache_control" not in last_block:
+                    last_block = dict(last_block)
+                    last_block["cache_control"] = dict(
+                        _EPHEMERAL_CACHE_CONTROL,
+                    )
+                    new_list[-1] = last_block
+            return new_list
+
+        # Unknown shape — leave untouched.
+        return content
+
+
 class AnthropicProvider(Provider):
     """Provider implementation for Anthropic API."""
 
@@ -442,8 +625,6 @@ class AnthropicProvider(Provider):
             )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
-        from agentscope.model import AnthropicChatModel
-
         client_kwargs: Dict[str, Any] = {"base_url": self.base_url}
 
         # Start with any user-defined custom headers
@@ -490,7 +671,7 @@ class AnthropicProvider(Provider):
         )
         max_tokens = effective_generate_kwargs.pop("max_tokens", 16384)
 
-        return AnthropicChatModel(
+        return _CachingAnthropicChatModel(
             model_name=model_id,
             max_tokens=max_tokens,
             stream=True,

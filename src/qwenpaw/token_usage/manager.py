@@ -22,6 +22,10 @@ class TokenUsageStats(BaseModel):
     prompt_tokens: int = Field(0, ge=0)
     completion_tokens: int = Field(0, ge=0)
     call_count: int = Field(0, ge=0)
+    # Anthropic prompt-cache stats. Zero for non-anthropic providers and
+    # for legacy records that pre-date the cache columns.
+    cache_creation_tokens: int = Field(0, ge=0)
+    cache_read_tokens: int = Field(0, ge=0)
 
 
 class TokenUsageRecord(TokenUsageStats):
@@ -52,6 +56,8 @@ class TokenUsageSummary(BaseModel):
     total_prompt_tokens: int = Field(0, ge=0)
     total_completion_tokens: int = Field(0, ge=0)
     total_calls: int = Field(0, ge=0)
+    total_cache_creation_tokens: int = Field(0, ge=0)
+    total_cache_read_tokens: int = Field(0, ge=0)
     by_model: dict[str, TokenUsageByModel] = Field(
         default_factory=dict,
         description="Per model (provider:model key) aggregation",
@@ -168,6 +174,14 @@ class TokenUsageManager:
                         prompt_tokens=entry.get("prompt_tokens", 0),
                         completion_tokens=entry.get("completion_tokens", 0),
                         call_count=entry.get("call_count", 0),
+                        cache_creation_tokens=entry.get(
+                            "cache_creation_tokens",
+                            0,
+                        ),
+                        cache_read_tokens=entry.get(
+                            "cache_read_tokens",
+                            0,
+                        ),
                     ),
                 )
             current += timedelta(days=1)
@@ -210,6 +224,8 @@ class TokenUsageManager:
         total_prompt = 0
         total_completion = 0
         total_calls = 0
+        total_cache_creation = 0
+        total_cache_read = 0
         by_model_raw: dict[str, dict] = {}
         by_date_raw: dict[str, dict] = {}
 
@@ -217,9 +233,13 @@ class TokenUsageManager:
             pt = r.prompt_tokens
             ct = r.completion_tokens
             calls = r.call_count
+            cc = r.cache_creation_tokens
+            cr = r.cache_read_tokens
             total_prompt += pt
             total_completion += ct
             total_calls += calls
+            total_cache_creation += cc
+            total_cache_read += cr
 
             # Aggregate by model
             model_key = (
@@ -233,25 +253,39 @@ class TokenUsageManager:
                     "prompt_tokens": 0,
                     "completion_tokens": 0,
                     "call_count": 0,
+                    "cache_creation_tokens": 0,
+                    "cache_read_tokens": 0,
                 },
             )
             bm["prompt_tokens"] += pt
             bm["completion_tokens"] += ct
             bm["call_count"] += calls
+            bm["cache_creation_tokens"] += cc
+            bm["cache_read_tokens"] += cr
 
             # Aggregate by date
             bd = by_date_raw.setdefault(
                 r.date,
-                {"prompt_tokens": 0, "completion_tokens": 0, "call_count": 0},
+                {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "call_count": 0,
+                    "cache_creation_tokens": 0,
+                    "cache_read_tokens": 0,
+                },
             )
             bd["prompt_tokens"] += pt
             bd["completion_tokens"] += ct
             bd["call_count"] += calls
+            bd["cache_creation_tokens"] += cc
+            bd["cache_read_tokens"] += cr
 
         return TokenUsageSummary(
             total_prompt_tokens=total_prompt,
             total_completion_tokens=total_completion,
             total_calls=total_calls,
+            total_cache_creation_tokens=total_cache_creation,
+            total_cache_read_tokens=total_cache_read,
             by_model={
                 k: TokenUsageByModel.model_validate(v)
                 for k, v in sorted(by_model_raw.items())

@@ -24,6 +24,12 @@ class _UsageEvent(NamedTuple):
     completion_tokens: int
     date_str: str  # YYYY-MM-DD, pre-computed by producer
     now_iso: str  # ISO-8601 timestamp, pre-computed by producer
+    # Anthropic prompt-cache stats (0 for non-anthropic providers).
+    # ``cache_creation_tokens``: tokens written into cache (paid 1.25x).
+    # ``cache_read_tokens``    : tokens read from cache (paid 0.1x), i.e.
+    #                            tokens "saved" by prompt caching.
+    cache_creation_tokens: int = 0
+    cache_read_tokens: int = 0
 
 
 class TokenUsageBuffer:
@@ -197,6 +203,8 @@ def _apply_event(cache: dict, ev: _UsageEvent) -> None:
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "call_count": 0,
+            "cache_creation_tokens": 0,
+            "cache_read_tokens": 0,
         },
     )
 
@@ -204,6 +212,13 @@ def _apply_event(cache: dict, ev: _UsageEvent) -> None:
     entry["prompt_tokens"] += ev.prompt_tokens
     entry["completion_tokens"] += ev.completion_tokens
     entry["call_count"] += 1
+    # Backfill cache fields on legacy entries that pre-date this column.
+    entry["cache_creation_tokens"] = (
+        entry.get("cache_creation_tokens", 0) + ev.cache_creation_tokens
+    )
+    entry["cache_read_tokens"] = (
+        entry.get("cache_read_tokens", 0) + ev.cache_read_tokens
+    )
 
 
 __all__ = ["TokenUsageBuffer", "_UsageEvent"]

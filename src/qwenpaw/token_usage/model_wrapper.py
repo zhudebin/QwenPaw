@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Model wrapper that records token usage from LLM responses."""
 
+import logging
 from datetime import date, datetime, timezone
 from typing import Any, AsyncGenerator, Literal, Type
 
@@ -11,6 +12,8 @@ from pydantic import BaseModel
 
 from .buffer import _UsageEvent
 from .manager import get_token_usage_manager
+
+logger = logging.getLogger(__name__)
 
 
 class TokenRecordingModelWrapper(ChatModelBase):
@@ -35,6 +38,28 @@ class TokenRecordingModelWrapper(ChatModelBase):
         if pt <= 0 and ct <= 0:
             return
 
+        # Surface anthropic prompt-cache stats (added by vendored
+        # AnthropicChatModel into ``ChatUsage.metadata``) so we can verify
+        # cache hits/misses end-to-end in dev. Cheap one-liner; fields are
+        # absent for non-anthropic providers.
+        meta = getattr(usage, "metadata", None) or {}
+        cc = meta.get("cache_creation_input_tokens")
+        cr = meta.get("cache_read_input_tokens")
+        # Normalise to non-negative ints so the rest of the pipeline can
+        # safely accumulate. ``None`` (non-anthropic providers) → 0.
+        cc_int = int(cc) if isinstance(cc, (int, float)) and cc > 0 else 0
+        cr_int = int(cr) if isinstance(cr, (int, float)) and cr > 0 else 0
+        logger.info(
+            "[token_usage] %s/%s prompt=%d completion=%d "
+            "cache_creation=%s cache_read=%s",
+            self._provider_id,
+            self.model_name,
+            pt,
+            ct,
+            cc,
+            cr,
+        )
+
         event = _UsageEvent(
             provider_id=self._provider_id,
             model_name=self.model_name,
@@ -44,6 +69,8 @@ class TokenRecordingModelWrapper(ChatModelBase):
             now_iso=datetime.now(tz=timezone.utc).isoformat(
                 timespec="seconds",
             ),
+            cache_creation_tokens=cc_int,
+            cache_read_tokens=cr_int,
         )
         # Fire-and-forget: synchronous put_nowait, ~100 ns, no await needed.
         get_token_usage_manager().enqueue(event)
